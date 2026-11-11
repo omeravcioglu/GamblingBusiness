@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <Nullable>disable</Nullable>
+        <LangVersion>latest</LangVersion>
+        <Configurations>Debug;Release</Configurations>
+        <RootNamespace />
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Com.Unity.Services.CloudCode.Apis" Version="0.0.21" />
+        <PackageReference Include="Com.Unity.Services.CloudCode.Core" Version="0.0.1" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="7.0.1" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    </ItemGroup>
+
+    <!-- The game rules are shared with the Unity client: compile the same files here. -->
+    <ItemGroup>
+        <Compile Include="..\..\Assets\ScriptsIMade\OnlineCity\Shared\**\*.cs" Link="Shared\%(RecursiveDir)%(Filename)%(Extension)" />
+    </ItemGroup>
+
+    <PropertyGroup>
+        <PublishReadyToRunComposite>true</PublishReadyToRunComposite>
+    </PropertyGroup>
+
+</Project>
