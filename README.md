@@ -113,6 +113,6 @@ All of it: **384 C# scripts in `Assets/ScriptsIMade`, about 146k lines**, plus t
 
 ## About this repository
 
-This public repository is a **showcase**. It contains the documentation and the **409 source files I wrote** for this project. The complete Unity project, with the licensed store art it uses, its Unity Cloud link and the Steam store kit, is kept in a private repository.
+This public repository is a **showcase**. It contains the documentation and the **410 source files I wrote** for this project. The complete Unity project, with the licensed store art it uses, its Unity Cloud link and the Steam store kit, is kept in a private repository.
 
 Copyright © Omer Avcioglu (McHunter Studio). **All rights reserved.** Viewing only; see [LICENSE](LICENSE).

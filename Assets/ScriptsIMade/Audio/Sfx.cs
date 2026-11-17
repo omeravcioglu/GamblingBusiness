@@ -24,7 +24,7 @@ public enum Sfx
     UiPluck = 12,       // ui_pluck
     UiMaximize = 13,    // ui_maximize
     UiMinimize = 14,    // ui_minimize
-    UiScratch = 15,     // ui_scratch: rubber stamps
+    UiScratch = 15,     // ui_scratch: rubber stamps (since 2026-11-16 the game's own stamp_*, Tools/Audio/make_sfx.py)
     UiGlass = 16,       // ui_glass: sparkle
 
     // Casino table (kenney_casino-audio)
@@ -41,6 +41,10 @@ public enum Sfx
     DiceThrow = 27,     // dice_throw
     CoinFlick = 28,     // coin_flick
     CoinLand = 29,      // coin_land
+
+    // The game's own (Assets/Audio/Sfx, synthesized by Tools/Audio/make_sfx.py)
+    PaperLand = 30,     // paper_land: a batch of CVs lands on the desk
+    Hired = 31,         // hired: the accent after the HIRED stamp
 }
 
 /// <summary>How much a cue matters when sounds pile up.</summary>

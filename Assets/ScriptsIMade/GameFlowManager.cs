@@ -253,7 +253,7 @@ public class GameFlowManager : MonoBehaviour
         // Wait one frame so the papers' Animators are running before triggering the entrance
         yield return null;
 
-        if (currentPapers.Count > 0) GameSfx.Play(Sfx.CardFan);   // a new batch of CVs lands on the desk
+        if (currentPapers.Count > 0) GameSfx.Play(Sfx.PaperLand);   // a new batch of CVs lands on the desk
 
         // Play entrance animation for each paper with stagger
         if (playEntranceAnimation)
@@ -319,7 +319,7 @@ public class GameFlowManager : MonoBehaviour
 
         ApplicantData applicant = batch[index];
         SendPaperAway(index, hired: true);
-        GameSfx.PlayPair(Sfx.UiConfirm, Sfx.UiScratch, 0.1f);   // hired: the HIRED stamp lands as it scales in
+        GameSfx.PlayPair(Sfx.UiScratch, Sfx.Hired, 0.15f, 0.1f);   // hired: the HIRED stamp lands as it scales in, then the accent
 
         try
         {

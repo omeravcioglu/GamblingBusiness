@@ -9,7 +9,8 @@ using UnityEngine.UI;
 /// hand; a win pays bet x 1.5 into the build budget, a loss is gone (a blackjack push gives the bet back to the company).
 /// - Pick a game, set the bet (-/+, the field, the slider or the $1,000 / $5,000 / $10,000 / MAX presets) and play.
 /// - The company always keeps keepInCompany ($1,000): the largest bet is floor(company value - keepInCompany), so an
-///   all-in bet (which pays into the build budget, not into cash) can't leave the company at $0.
+///   all-in bet (which pays into the build budget, not into cash) can't leave the company at $0. Demo: one bet is also at
+///   most DemoConfig.buildGambleMaxBetShare (half) of the company value, and the note under the bet says so.
 /// - Pausing pop-up (UIManager.OpenPanel(this, true, ...)) on the tower screen. Escape closes it, except while a flip or
 ///   a hand is running.
 /// - The bet is taken from the company when the game starts (PendingBet while unresolved) and settled as soon as the
@@ -441,11 +442,26 @@ public class BuildGambleView : MonoBehaviour
 
     double Reserve => System.Math.Max(0.0, keepInCompany);
 
-    /// <summary>The largest bet: all of the company value except what the company keeps.</summary>
+    /// <summary>
+    /// The largest bet: all of the company value except what the company keeps. In the demo also at most
+    /// DemoConfig.buildGambleMaxBetShare of the company value (half, like a casino bet), so one lost hand can't take
+    /// everything (2026-11-16: the owner lost all the company on one MAX hand).
+    /// </summary>
     double MaxBet()
     {
-        return System.Math.Max(0.0, System.Math.Floor(CompanyValue() - Reserve));
+        double max = System.Math.Max(0.0, System.Math.Floor(CompanyValue() - Reserve));
+        if (DemoMode.Active) max = System.Math.Min(max, DemoShareCap());
+        return max;
     }
+
+    /// <summary>Demo: the most one bet may be, as a share of the company value (whole dollars).</summary>
+    static double DemoShareCap()
+    {
+        return System.Math.Max(0.0, System.Math.Floor(CompanyValue() * DemoMode.Config.buildGambleMaxBetShare));
+    }
+
+    /// <summary>Demo: the share cap, not the reserve, is what sets MAX right now. Always false outside the demo.</summary>
+    bool DemoShareCapped => DemoMode.Active && DemoShareCap() < System.Math.Floor(CompanyValue() - Reserve);
 
     string NotEnoughText()
     {
@@ -493,6 +509,7 @@ public class BuildGambleView : MonoBehaviour
         if (keepHintText != null)
             keepHintText.text = !canBet ? NotEnoughText()
                 : goalName != null ? GoalText(max)
+                : DemoShareCapped ? DemoMode.T("demo.casino.max_note", ("max", "<b>" + UIFormat.Money(max) + "</b>"))   // Demo: "one bet is at most half the company"
                 : TowerText.Get("tower.gamble.keep_hint", ("max", "<b>" + TowerText.Get("tower.gamble.preset.max") + "</b>"),
                                 ("amount", "<b>" + UIFormat.Money(max) + "</b>"), ("reserve", UIFormat.Money(Reserve)));
 

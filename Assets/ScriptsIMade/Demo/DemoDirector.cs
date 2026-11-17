@@ -7,7 +7,6 @@ using UnityEngine.SceneManagement;
 /// The demo's shell in the company scene (demo mode only; DemoDirectorBootstrap adds it):
 /// - Play clock: DemoRun.PlaySeconds counts real seconds while the game has focus, the pause menu is closed and no demo
 ///   card is up (saved with the run).
-/// - Day 3: a one-time sofa tip toast.
 /// - The end of the demo (DemoEndView):
 ///   (a) the Board meeting on DemoMode.FinaleDay (12) arms the finale; once its memo is answered and the screen has been
 ///       calm (RunEndDirector.IsScreenCalm) for calmSeconds, the DEMO COMPLETE card opens with the verdict;
@@ -35,8 +34,6 @@ public class DemoDirector : MonoBehaviour
     public float calmSeconds = 1.5f;
     [Tooltip("Real seconds nothing may be going on before a forced card (time cap, hard stop, jackpot) opens")]
     public float settleSeconds = 0.3f;
-    [Tooltip("The sofa tip shows from this day")]
-    public int sofaTipDay = 3;
 
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -146,8 +143,6 @@ public class DemoDirector : MonoBehaviour
             calmTimer = 0f;
             return;
         }
-
-        ShowSofaTip(company);
 
         if (!CardDue(company, out DemoEndMode mode, out string reason, out bool needsCalmScreen, out bool restore) ||
             !NothingWouldBeCut() || (needsCalmScreen && !RunEndDirector.IsScreenCalm()))
@@ -271,13 +266,6 @@ public class DemoDirector : MonoBehaviour
     {
         SaveSystem save = SaveSystem.Instance;
         return save == null || (!save.IsLoading && save.IsGameLoaded);
-    }
-
-    void ShowSofaTip(CompanyManager company)
-    {
-        if (DemoRun.SofaHintShown || company.currentDay < sofaTipDay || !RunEndDirector.IsScreenCalm()) return;
-        DemoRun.SofaHintShown = true;
-        GameNotifications.Show(DemoMode.T("demo.toast.sofa"), NotificationKind.Info);
     }
 
     // ------------------------------------------------------------------

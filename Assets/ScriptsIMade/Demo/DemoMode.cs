@@ -48,6 +48,7 @@ public class DemoConfig
     public double boardExpectedMinimum = 4000;
     // building
     public double startingBuildBudget = 6000, buildWinMultiplier = 2.0;
+    public float buildGambleMaxBetShare = 0.5f;               // one build-budget bet: at most this share of the company
     public bool houseFlip = true;
     public double houseFlipMaxBet = 10000;
     // shell and demo end
@@ -113,6 +114,7 @@ public class DemoConfig
         boardExpectedMinimum = Math.Max(0, boardExpectedMinimum);
         startingBuildBudget = Math.Max(0, startingBuildBudget);
         if (!(buildWinMultiplier >= 1)) buildWinMultiplier = 1;
+        buildGambleMaxBetShare = Mathf.Clamp01(buildGambleMaxBetShare);
         houseFlipMaxBet = Math.Max(0, houseFlipMaxBet);
         splashSeconds = Mathf.Max(0f, splashSeconds);
         fundingFirstFlipChance = Mathf.Clamp01(fundingFirstFlipChance);

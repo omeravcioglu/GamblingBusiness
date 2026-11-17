@@ -8,7 +8,8 @@ using UnityEditor.Build.Reporting;
 using UnityEngine;
 
 /// <summary>
-/// Builds the sound library (Assets/Resources/Audio/SfxLibrary.asset) from the two Kenney packs: every Sfx cue gets the
+/// Builds the sound library (Assets/Resources/Audio/SfxLibrary.asset) from the two Kenney packs and the game's own sounds
+/// (Assets/Audio/Sfx: the stamps, the CVs landing, the "hired" accent; Tools/Audio/make_sfx.py): every Sfx cue gets the
 /// clips whose file names match its pattern (the clip map below), a volume set by ear from the recordings' loudness (the
 /// casino pack is recorded 5-10 dB quieter than the interface pack), a pitch, pitch jitter (±4%), a priority and its
 /// anti-spam limits, plus per-clip gains that bring a cue's variants to about the same loudness (measured from the
@@ -25,6 +26,7 @@ public static class SfxLibraryBuilder
 {
     const string InterfaceFolder = "Assets/kenney_interface-sounds/Audio";
     const string CasinoFolder = "Assets/kenney_casino-audio/Audio";
+    const string OwnFolder = "Assets/Audio/Sfx";   // the game's own sounds (Tools/Audio/make_sfx.py)
 
     // Loudness match between a cue's variants: this share of the difference to their average, within these gains
     const float MatchShare = 0.75f;
@@ -80,7 +82,8 @@ public static class SfxLibraryBuilder
         Spec(Sfx.UiPluck,      "ui_pluck",      InterfaceFolder, @"^pluck_\d+$",            0.3f,  SfxPriority.Low),
         Spec(Sfx.UiMaximize,   "ui_maximize",   InterfaceFolder, @"^maximize_\d+$",         0.24f),
         Spec(Sfx.UiMinimize,   "ui_minimize",   InterfaceFolder, @"^minimize_\d+$",         0.24f),
-        Spec(Sfx.UiScratch,    "ui_scratch",    InterfaceFolder, @"^scratch_\d+$",          0.42f),
+        // Rubber stamps: the game's own thump (the pack's "scratch" was a thin digital scratch); id kept so the tuning stays
+        Spec(Sfx.UiScratch,    "ui_scratch",    OwnFolder,       @"^stamp_\d+$",            0.42f),
         Spec(Sfx.UiGlass,      "ui_glass",      InterfaceFolder, @"^glass_\d+$",            0.42f, SfxPriority.High),
 
         // Casino table
@@ -98,6 +101,10 @@ public static class SfxLibraryBuilder
         // No coin in the packs: a chip laid down, pitched up, is the flick; a die's bounces, pitched up and quiet, the landing
         Spec(Sfx.CoinFlick,    "coin_flick",    CasinoFolder,    @"^chip-lay-1$",           0.62f, pitch: 1.5f, jitter: 0.05f),
         Spec(Sfx.CoinLand,     "coin_land",     CasinoFolder,    @"^die-throw-\d+$",        0.55f, pitch: 1.3f),
+
+        // The game's own (synthesized): CVs landing on the desk, the "you're hired" accent after the HIRED stamp
+        Spec(Sfx.PaperLand,    "paper_land",    OwnFolder,       @"^paper_land_\d+$",       0.55f, maxVoices: 1),
+        Spec(Sfx.Hired,        "hired",         OwnFolder,       @"^hired_\d+$",            0.45f, jitter: 0.015f, maxVoices: 1),
     };
 
     static SfxLibraryBuilder()
