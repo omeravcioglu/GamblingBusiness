@@ -217,11 +217,14 @@ public class StockMarketManager : MonoBehaviour, ISaveParticipant
     // Money helpers
     // ------------------------------------------------------------------
 
-    /// <summary>Money the company can spend (its value). 0 when no company is loaded.</summary>
+    /// <summary>
+    /// Money for trading: Player Cash (Cash Grab, 2026-11-24: stocks are the CEO's own speculation, paid with cash collected
+    /// on the cash floor; PlayerWallet falls back to company value without a cash floor). 0 when no company is loaded.
+    /// </summary>
     public static double GetCash()
     {
         if (CompanyManager.Instance == null) return 0.0;
-        return Math.Max(0.0, CompanyManager.Instance.companyValue);
+        return Math.Max(0.0, PlayerWallet.Balance);
     }
 
     /// <summary>Fee rate actually used (Inspector value clamped to 0-50%, halved by Market Manipulation).</summary>
@@ -271,6 +274,15 @@ public class StockMarketManager : MonoBehaviour, ISaveParticipant
     /// <summary>Buy shares. <paramref name="totalCost"/> is the price including the fee (also set when there isn't enough money).</summary>
     public TradeResult TryBuyStock(string symbol, long shares, out double totalCost)
     {
+        return TryBuyStock(symbol, shares, out totalCost, false);
+    }
+
+    /// <summary>
+    /// Buy shares; <paramref name="withCompanyMoney"/> pays from company value instead of Player Cash (the manager investing
+    /// on the company's behalf). The CEO's own trades always use Player Cash.
+    /// </summary>
+    public TradeResult TryBuyStock(string symbol, long shares, out double totalCost, bool withCompanyMoney)
+    {
         totalCost = 0.0;
         if (shares <= 0 || shares > MaxSharesPerTrade) return TradeResult.InvalidAmount;
 
@@ -281,9 +293,16 @@ public class StockMarketManager : MonoBehaviour, ISaveParticipant
         if (company == null) return TradeResult.NoCompany;
 
         totalCost = GetBuyCost(stock, shares);
-        if (GetCash() < totalCost) return TradeResult.NotEnoughMoney;
-
-        company.AddMoney(-totalCost, true);
+        if (withCompanyMoney)
+        {
+            if (Math.Max(0.0, company.companyValue) < totalCost) return TradeResult.NotEnoughMoney;
+            company.AddMoney(-totalCost, true);
+        }
+        else
+        {
+            if (GetCash() < totalCost) return TradeResult.NotEnoughMoney;
+            if (!PlayerWallet.TrySpend(totalCost, "stock market")) return TradeResult.NotEnoughMoney;
+        }
         stock.RecordPurchase(shares, stock.currentPrice);
         RecordTrade(true, stock, shares, stock.currentPrice, totalCost, 0.0);
 
@@ -307,7 +326,7 @@ public class StockMarketManager : MonoBehaviour, ISaveParticipant
 
         proceeds = GetSellProceeds(stock, shares);
         double costBasis = (double)stock.averageBuyPrice * shares; // before RecordSale, which clears the average when all are sold
-        company.AddMoney(proceeds, true);
+        PlayerWallet.Receive(proceeds, "stock market");   // Cash Grab: sales pay into Player Cash
         stock.RecordSale(shares);
         RecordTrade(false, stock, shares, stock.currentPrice, proceeds, proceeds - costBasis);
 

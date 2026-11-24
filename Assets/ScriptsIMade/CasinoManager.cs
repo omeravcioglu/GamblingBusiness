@@ -426,11 +426,20 @@ public class CasinoManager : MonoBehaviour
     // Bets (whole dollars)
     // ------------------------------------------------------------------
 
-    /// <summary>Company value in whole dollars; 0 when no company is loaded.</summary>
+    /// <summary>
+    /// The money bets come from, in whole dollars: Player Cash (Cash Grab, 2026-11-24: the casino only takes cash the CEO
+    /// collected on the cash floor; PlayerWallet falls back to company value without a cash floor); 0 without a company.
+    /// </summary>
     public static long GetBalance()
     {
         if (CompanyManager.Instance == null) return 0;
-        return ToWholeDollars(CompanyManager.Instance.companyValue);
+        return ToWholeDollars(PlayerWallet.Balance);
+    }
+
+    /// <summary>The bankroll now (Player Cash; company value without a cash floor): what the casino's money chip shows.</summary>
+    public static double BalanceNow()
+    {
+        return CompanyManager.Instance != null ? Math.Max(0.0, PlayerWallet.Balance) : 0.0;
     }
 
     /// <summary>Company value now (0 without a company): a round's value before its stake is taken.</summary>
@@ -447,33 +456,37 @@ public class CasinoManager : MonoBehaviour
         return (long)Math.Floor(value);
     }
 
-    /// <summary>What the company always keeps: no bet can take it.</summary>
-    public double KeepInCompany => double.IsNaN(keepInCompany) ? 0.0 : Math.Max(0.0, keepInCompany);
+    /// <summary>
+    /// What the company always keeps: no bet can take it. With the cash floor there is no reserve: bets only ever come out
+    /// of Player Cash, which can't bankrupt the company.
+    /// </summary>
+    public double KeepInCompany => PlayerWallet.Active ? 0.0 : double.IsNaN(keepInCompany) ? 0.0 : Math.Max(0.0, keepInCompany);
 
     /// <summary>
-    /// The largest bet right now: floor(company value - KeepInCompany), in the demo also at most casinoMaxBetShare of
-    /// company value; 0 when nothing can be bet.
+    /// The largest bet right now: floor(bankroll - KeepInCompany), in the demo also at most casinoMaxBetShare of the
+    /// bankroll; 0 when nothing can be bet. The bankroll is Player Cash (PlayerWallet).
     /// </summary>
     public long GetMaxBet()
     {
         CompanyManager company = CompanyManager.Instance;
         if (company == null) return 0;
-        long max = ToWholeDollars(company.companyValue - KeepInCompany);
-        if (DemoMode.Active) max = Math.Min(max, DemoShareCap(company.companyValue));   // Demo: half the company at most
+        double balance = PlayerWallet.Balance;
+        long max = ToWholeDollars(balance - KeepInCompany);
+        if (DemoMode.Active) max = Math.Min(max, DemoShareCap(balance));   // Demo: half the bankroll at most
         return max;
     }
 
-    /// <summary>floor(company value - KeepInCompany): the room above the reserve, whatever caps a chosen bet.</summary>
+    /// <summary>floor(bankroll - KeepInCompany): the room above the reserve, whatever caps a chosen bet.</summary>
     long RoomAboveReserve()
     {
         CompanyManager company = CompanyManager.Instance;
-        return company != null ? ToWholeDollars(company.companyValue - KeepInCompany) : 0;
+        return company != null ? ToWholeDollars(PlayerWallet.Balance - KeepInCompany) : 0;
     }
 
-    /// <summary>Demo: the largest share of company value one chosen bet may be (whole dollars).</summary>
-    static long DemoShareCap(double companyValue)
+    /// <summary>Demo: the largest share of the bankroll one chosen bet may be (whole dollars).</summary>
+    static long DemoShareCap(double balance)
     {
-        return ToWholeDollars(companyValue * DemoMode.Config.casinoMaxBetShare);
+        return ToWholeDollars(balance * DemoMode.Config.casinoMaxBetShare);
     }
 
     /// <summary>
@@ -484,7 +497,7 @@ public class CasinoManager : MonoBehaviour
         get
         {
             if (!DemoMode.Active || CompanyManager.Instance == null) return false;
-            long share = DemoShareCap(CompanyManager.Instance.companyValue);
+            long share = DemoShareCap(PlayerWallet.Balance);
             return share >= 1 && share < RoomAboveReserve() && currentBet >= share;
         }
     }
@@ -495,11 +508,13 @@ public class CasinoManager : MonoBehaviour
     /// <summary>The company has more than it keeps, so there is something to bet.</summary>
     public bool CanBetAtAll => GetMaxBet() >= 1;
 
-    /// <summary>"The company keeps $1,000" (Casino table, casino.keep_hint).</summary>
-    public string KeepHint => L10n.Get(CasinoUI.Table, "casino.keep_hint", ("amount", UIFormat.Money(KeepInCompany)));
+    /// <summary>"Bets come out of your cash" (Cash Grab), else "The company keeps $1,000" (Casino table, casino.keep_hint).</summary>
+    public string KeepHint => PlayerWallet.Active ? CashText.Get("cash.casino.hint")
+                                                  : L10n.Get(CasinoUI.Table, "casino.keep_hint", ("amount", UIFormat.Money(KeepInCompany)));
 
-    /// <summary>Why nothing can be bet while the company has no more than it keeps (casino.msg.not_enough).</summary>
-    public string NotEnoughMessage => L10n.Get(CasinoUI.Table, "casino.msg.not_enough", ("amount", UIFormat.Money(KeepInCompany)));
+    /// <summary>Why nothing can be bet: no Player Cash yet (Cash Grab), else the company's reserve (casino.msg.not_enough).</summary>
+    public string NotEnoughMessage => PlayerWallet.Active ? CashText.Get("cash.casino.no_cash")
+                                                          : L10n.Get(CasinoUI.Table, "casino.msg.not_enough", ("amount", UIFormat.Money(KeepInCompany)));
 
     /// <summary>Inspector-friendly overload (UnityEvents can't pass a long).</summary>
     public void SetBet(int amount)
@@ -695,12 +710,13 @@ public class CasinoManager : MonoBehaviour
             reason = L10n.Get(CasinoUI.Table, "casino.msg.no_bet");
             return false;
         }
-        // The cap is floor(value - reserve) for picking a bet; a fractional stake (a coin-flip pot) may use the exact
+        // The cap is floor(bankroll - reserve) for picking a bet; a fractional stake (a coin-flip pot) may use the exact
         // room above the reserve, so a pot that leaves exactly the reserve can still be doubled
-        double room = Math.Max(max, CompanyManager.Instance.companyValue - KeepInCompany);
+        double room = Math.Max(max, PlayerWallet.Balance - KeepInCompany);
         if (amount > room + 1e-6)
         {
-            reason = L10n.Get(CasinoUI.Table, "casino.msg.over_max", ("max", UIFormat.Money(max)), ("amount", UIFormat.Money(KeepInCompany)));
+            reason = PlayerWallet.Active ? CashText.Get("cash.casino.over_max", ("max", UIFormat.Money(max)))
+                                         : L10n.Get(CasinoUI.Table, "casino.msg.over_max", ("max", UIFormat.Money(max)), ("amount", UIFormat.Money(KeepInCompany)));
             return false;
         }
         reason = "";
@@ -714,7 +730,11 @@ public class CasinoManager : MonoBehaviour
     public bool TryPlaceBet(double amount, out string reason)
     {
         if (!CanPlaceBet(amount, out reason)) return false;
-        DeductBet(amount);
+        if (!DeductBet(amount))
+        {
+            reason = NotEnoughMessage;
+            return false;
+        }
         return true;
     }
 
@@ -753,28 +773,28 @@ public class CasinoManager : MonoBehaviour
     public void UpdateBalanceDisplay()
     {
         if (balanceText != null)
-        {
-            double balance = CompanyManager.Instance != null ? Math.Floor(CompanyManager.Instance.companyValue) : 0.0;
-            balanceText.text = UIFormat.Money(balance);
-        }
+            balanceText.text = UIFormat.Money(Math.Floor(BalanceNow()));
     }
 
+    /// <summary>Winnings (and a push's returned bet) go to Player Cash (PlayerWallet).</summary>
     public void AddWinnings(double amount)
     {
         // Winnings are never negative (a negative amount would take money)
         if (amount <= 0.0 || double.IsNaN(amount) || CompanyManager.Instance == null) return;
-        CompanyManager.Instance.AddMoney(amount, true);
+        PlayerWallet.Receive(amount, "casino");
         UpdateBalanceDisplay();
         ReportMoney(0.0, amount);
     }
 
-    public void DeductBet(double amount)
+    /// <summary>Take a bet out of Player Cash (PlayerWallet). False when it isn't there (nothing is taken).</summary>
+    public bool DeductBet(double amount)
     {
         // A negative bet would add money, so it is ignored
-        if (amount <= 0.0 || double.IsNaN(amount) || CompanyManager.Instance == null) return;
-        CompanyManager.Instance.AddMoney(-amount, true);
+        if (amount <= 0.0 || double.IsNaN(amount) || CompanyManager.Instance == null) return false;
+        if (!PlayerWallet.TrySpend(amount, "casino")) return false;
         UpdateBalanceDisplay();
         ReportMoney(amount, 0.0);
+        return true;
     }
 
     static void ReportMoney(double bet, double won)

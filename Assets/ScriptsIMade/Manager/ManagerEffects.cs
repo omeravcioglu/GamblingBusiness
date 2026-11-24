@@ -311,10 +311,14 @@ public static class ManagerEffects
                 break;
         }
         if (pick == null) return;
-        long shares = (long)Math.Floor(amount / (pick.currentPrice * (1.0 + market.FeeRate)));
-        shares = Math.Min(shares, market.GetMaxAffordableShares(pick));
+        double unit = pick.currentPrice * (1.0 + market.FeeRate);
+        long shares = (long)Math.Floor(amount / unit);
+        // Cash Grab: the manager invests the company's money (not the CEO's Player Cash)
+        CompanyManager company = Company;
+        double room = company != null ? Math.Max(0.0, company.companyValue - ManagerSystem.Reserve) : 0.0;
+        shares = Math.Min(shares, (long)Math.Floor(Math.Min(room / unit, 1e15)));
         if (shares <= 0) return;
-        if (market.TryBuyStock(pick.symbol, shares, out double cost) == StockMarketManager.TradeResult.Success)
+        if (market.TryBuyStock(pick.symbol, shares, out double cost, true) == StockMarketManager.TradeResult.Success)
             ctx.Toasts.Add(ManagerText.Get("mgr.toast.stocks", ("shares", shares.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)),
                                            ("symbol", pick.symbol), ("amount", UIFormat.Money(cost))));
     }

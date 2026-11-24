@@ -236,7 +236,7 @@ public class BuildGambleView : MonoBehaviour
         if (handTable != null) handTable.HandEnded -= OnHandEnded;
         handTable = null;
         if (handRunning && pendingBet > 0.0 && CompanyManager.Instance != null)
-            CompanyManager.Instance.AddMoney(pendingBet, true);
+            PlayerWallet.Receive(pendingBet, "build gamble (refund)");   // Cash Grab: the bet came from Player Cash
         pendingBet = 0.0;
         if (UIManager.Exists) UIManager.Instance.ClosePanel(this);
         if (ownCanvas != null) Destroy(ownCanvas.gameObject);
@@ -435,12 +435,17 @@ public class BuildGambleView : MonoBehaviour
         else StartCoinFlip();
     }
 
+    /// <summary>
+    /// The bankroll in whole dollars: Player Cash (Cash Grab, 2026-11-24: the build budget is filled with cash the CEO
+    /// collected on the cash floor; PlayerWallet falls back to company value without a cash floor).
+    /// </summary>
     static double CompanyValue()
     {
-        return CompanyManager.Instance != null ? System.Math.Max(0.0, System.Math.Floor(CompanyManager.Instance.companyValue)) : 0.0;
+        return CompanyManager.Instance != null ? System.Math.Max(0.0, System.Math.Floor(PlayerWallet.Balance)) : 0.0;
     }
 
-    double Reserve => System.Math.Max(0.0, keepInCompany);
+    /// <summary>What no bet may touch: nothing with the cash floor (only Player Cash is bet), keepInCompany otherwise.</summary>
+    double Reserve => PlayerWallet.Active ? 0.0 : System.Math.Max(0.0, keepInCompany);
 
     /// <summary>
     /// The largest bet: all of the company value except what the company keeps. In the demo also at most
@@ -465,6 +470,7 @@ public class BuildGambleView : MonoBehaviour
 
     string NotEnoughText()
     {
+        if (PlayerWallet.Active) return CashText.Get("cash.gamble.not_enough", ("amount", UIFormat.Money(minimumBet)));   // Cash Grab
         return TowerText.Get("tower.gamble.not_enough", ("amount", UIFormat.Money(minimumBet + Reserve)), ("reserve", UIFormat.Money(Reserve)));
     }
 
@@ -510,6 +516,8 @@ public class BuildGambleView : MonoBehaviour
             keepHintText.text = !canBet ? NotEnoughText()
                 : goalName != null ? GoalText(max)
                 : DemoShareCapped ? DemoMode.T("demo.casino.max_note", ("max", "<b>" + UIFormat.Money(max) + "</b>"))   // Demo: "one bet is at most half the company"
+                : PlayerWallet.Active ? CashText.Get("cash.gamble.keep_hint", ("max", "<b>" + TowerText.Get("tower.gamble.preset.max") + "</b>"),
+                                                     ("amount", "<b>" + UIFormat.Money(max) + "</b>"))   // Cash Grab: MAX bets all your cash
                 : TowerText.Get("tower.gamble.keep_hint", ("max", "<b>" + TowerText.Get("tower.gamble.preset.max") + "</b>"),
                                 ("amount", "<b>" + UIFormat.Money(max) + "</b>"), ("reserve", UIFormat.Money(Reserve)));
 
@@ -787,11 +795,14 @@ public class BuildGambleView : MonoBehaviour
         return stake >= minimumBet;
     }
 
-    void TakeBet(double stake)
+    /// <summary>Take the stake out of Player Cash (PlayerWallet). False when it isn't there: nothing is taken.</summary>
+    bool TakeBet(double stake)
     {
+        double before = CompanyValue();
+        if (!PlayerWallet.TrySpend(stake, "build gamble")) return false;
         pendingBet = stake;
-        valueBeforeBet = CompanyValue();
-        CompanyManager.Instance.AddMoney(-stake, true);
+        valueBeforeBet = before;
+        return true;
     }
 
     static TowerBuilder Builder => TowerBuilder.Instance;
@@ -806,7 +817,11 @@ public class BuildGambleView : MonoBehaviour
     {
         if (!TryGetBet(out double stake)) return;
         HideStatus();
-        TakeBet(stake);
+        if (!TakeBet(stake))
+        {
+            Say(NotEnoughText(), NotificationKind.Bad);
+            return;
+        }
         flipping = true;
         GameSfx.Play(Sfx.CoinFlick);
         RefreshControls();
@@ -887,7 +902,7 @@ public class BuildGambleView : MonoBehaviour
         flipping = false;
         houseFlip = false;   // Demo: an unsettled house flip stays unused
         if (pendingBet > 0.0 && CompanyManager.Instance != null)
-            CompanyManager.Instance.AddMoney(pendingBet, true);
+            PlayerWallet.Receive(pendingBet, "build gamble (refund)");
         pendingBet = 0.0;
         if (coinFlipLayer != null) coinFlipLayer.gameObject.SetActive(false);
         if (coin != null) coin.localScale = Vector3.one;
@@ -911,7 +926,11 @@ public class BuildGambleView : MonoBehaviour
         }
 
         HideStatus();
-        TakeBet(stake);
+        if (!TakeBet(stake))
+        {
+            Say(NotEnoughText(), NotificationKind.Bad);
+            return;
+        }
         handValueBefore = valueBeforeBet;
         handRunning = true;
         RefreshControls();
@@ -943,7 +962,7 @@ public class BuildGambleView : MonoBehaviour
             table.HandEnded -= OnHandEnded;
             handTable = null;
             handRunning = false;
-            if (CompanyManager.Instance != null) CompanyManager.Instance.AddMoney(pendingBet, true);
+            if (CompanyManager.Instance != null) PlayerWallet.Receive(pendingBet, "build gamble (refund)");
             pendingBet = 0.0;
             ShowScreenAgain();
             RefreshControls();
@@ -972,7 +991,7 @@ public class BuildGambleView : MonoBehaviour
         }
         else if (result == BlackjackResult.Push)
         {
-            if (CompanyManager.Instance != null) CompanyManager.Instance.AddMoney(handStake, true);
+            if (CompanyManager.Instance != null) PlayerWallet.Receive(handStake, "build gamble (push)");
         }
         ReportSettled(handStake, result == BlackjackResult.Win ? (Builder != null ? handStake * winMultiplier : 0.0)
                                : result == BlackjackResult.Push ? handStake : 0.0);
@@ -1258,6 +1277,10 @@ public class BuildGambleView : MonoBehaviour
         BlueprintUI.HRow(money, 16f, new RectOffset(), TextAnchor.MiddleLeft);
         view.budgetText = MoneyChip(money, "BuildBudget", "tower.label.build_budget", true, font);
         view.companyValueText = MoneyChip(money, "CompanyValue", "tower.label.company_value", false, font);
+        // Cash Grab: the bets come from Player Cash, so the chip says "Your cash"
+        if (view.companyValueText != null && view.companyValueText.transform.parent.Find("Label") is Transform cashLabel &&
+            cashLabel.TryGetComponent(out TextMeshProUGUI cashCaption))
+            L10nText.Attach(cashCaption, CashText.Table, "cash.wallet.label");
 
         // Pick a game (the odds follow the pop-up's rules)
         Caps(inner, "PickLabel", "tower.gamble.pick_game", 44f, 214f, font);

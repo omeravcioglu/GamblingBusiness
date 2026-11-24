@@ -225,6 +225,10 @@ public class CompanyManager : MonoBehaviour
     public double LastDayChange { get; private set; }
     /// <summary>How far the current day is (0..1).</summary>
     public float DayProgress => dayDuration > 0f ? Mathf.Clamp01(dayTimer / dayDuration) : 0f;
+    /// <summary>Length of the current day in seconds of office time (15-45 s, the demo's own range in the demo).</summary>
+    public float DayDuration => dayDuration;
+    /// <summary>True while the office clock runs (no UIManager panel open): the day, its income and the cash floor move.</summary>
+    public bool ClockRunning => (!UIManager.Exists || !UIManager.Instance.IsAnyPanelOpen()) && Time.timeScale > 0f;
 
     public delegate void OnCompanyStatsChanged();
     public event OnCompanyStatsChanged StatsChanged;
@@ -240,6 +244,49 @@ public class CompanyManager : MonoBehaviour
 
     /// <summary>Fires after an applicant is hired and added to employees (isGolden already includes Lucky Hire).</summary>
     public event System.Action<ApplicantData> EmployeeHired;
+
+    /// <summary>
+    /// Cash Grab: a stream that delivers the day's income during the day (as bills on the cash floor, CashStream) instead of
+    /// as one lump when the day ends. It already put that money on the books bill by bill; at the end of the day
+    /// ProcessNewDay books the day as always and then asks the stream to settle: the stream takes back what it delivered
+    /// in advance (so nothing is counted twice) and delivers any remainder. Null = the day's income is booked at day end.
+    /// </summary>
+    public interface IDayIncomeStream
+    {
+        /// <summary>
+        /// The day's books just added <paramref name="booked"/> (day.total after the $0 floor). Returns how much of that
+        /// the stream had already added to company value during the day, which ProcessNewDay takes back out.
+        /// </summary>
+        double SettleDay(double booked, int endedDay);
+
+        /// <summary>What the stream has added to company value in advance for the current day (SettleDay takes it back).</summary>
+        double Provisional { get; }
+    }
+
+    /// <summary>The cash floor's income stream (CashGrabSystem sets it while it runs). See IDayIncomeStream.</summary>
+    public static IDayIncomeStream IncomeStream;
+
+    /// <summary>
+    /// Company value as the books stand at the start of the current day's settlement: companyValue without the income the
+    /// cash floor delivered in advance today. Saves store this (so the cloud save's server keeps seeing day income arrive
+    /// when the day ends, as it always did); the cash floor puts the advance back when the save loads.
+    /// </summary>
+    public double BookedValue
+    {
+        get
+        {
+            IDayIncomeStream stream = IncomeStream;
+            double advance = stream != null ? stream.Provisional : 0.0;
+            if (double.IsNaN(advance) || advance < 0.0) advance = 0.0;
+            return System.Math.Max(0.0, companyValue - advance);
+        }
+    }
+
+    /// <summary>
+    /// Cash Grab: extra employee productivity from outside the skill tree and the buildings (the Backend department's
+    /// upgrades), as a share (0.06 = +6%). It counts inside the +150% productivity cap like everything else.
+    /// </summary>
+    public static System.Func<float> ExtraProductivity;
 
     private HiringTaskManager subscribedTaskManager;
     private MiniGameManager subscribedMiniGameManager;
@@ -518,6 +565,9 @@ public class CompanyManager : MonoBehaviour
         currentDay++;
         lastDayEmployees.Clear();
 
+        // Cash Grab: what company value was before today's books (the income stream settles against it before the day ends)
+        double valueBeforeBooks = companyValue;
+
         SkillTreeManager skills = SkillTreeManager.Instance;
         DayBreakdown day = new DayBreakdown { day = currentDay - 1, happinessMultiplier = 1f };
 
@@ -546,6 +596,7 @@ public class CompanyManager : MonoBehaviour
             if (idleHookTrust != 0f) investorTrust += idleHookTrust;
             DriftMeters();
             day.total = day.operatingResult + day.skillGrowth + day.skillLuck;
+            SettleIncomeStream(valueBeforeBooks, day.day);
             CompleteDay(day);
             return;
         }
@@ -671,7 +722,95 @@ public class CompanyManager : MonoBehaviour
         if (hookTrust != 0f) investorTrust += hookTrust;
         DriftMeters();
 
+        SettleIncomeStream(valueBeforeBooks, day.day);
         CompleteDay(day);
+    }
+
+    /// <summary>
+    /// Cash Grab: the day's books are done. The income stream (IncomeStream) delivered part of today's income during the
+    /// day and already added it to company value; take that part back out, so the day counts exactly once, before the
+    /// day's change, the $1B check and DayEnded see the value.
+    /// </summary>
+    void SettleIncomeStream(double valueBeforeBooks, int endedDay)
+    {
+        IDayIncomeStream stream = IncomeStream;
+        if (stream == null) return;
+        double booked = companyValue - valueBeforeBooks;
+        double delivered;
+        try
+        {
+            delivered = stream.SettleDay(booked, endedDay);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogException(e, this);
+            return;
+        }
+        if (double.IsNaN(delivered) || double.IsInfinity(delivered) || delivered == 0.0) return;
+        companyValue -= delivered;
+        if (companyValue < 0) companyValue = 0;
+    }
+
+    /// <summary>
+    /// Cash Grab: what today's books are expected to add when the day ends, as things stand now: ProcessNewDay's formula
+    /// without the day's dice (no Random Raise or Salary Roulette, criminal-record trouble at its average cost, the market
+    /// swing at its average, recurring systems as they cost on the last day), then the growth/interest skills on that
+    /// profit and the merger bonus. Daily luck is left out (it arrives at day end). Changes nothing; cheap enough to call a
+    /// few times a second. The cash floor's income stream paces the day's bills with it.
+    /// </summary>
+    public double ProjectDayIncome()
+    {
+        SkillTreeManager skills = SkillTreeManager.Instance;
+        double officeItems = GetTotalOfficeBonus();
+        GetBuildingBonuses(out double buildings, out _, out _, out _);
+        double recurring = LastDayBreakdown.day > 0 ? LastDayBreakdown.recurring : 0.0;   // hooks have side effects: last day's amount
+
+        int count = 0;
+        double output = 0.0, salaries = 0.0, incidents = 0.0;
+        EmployeeDayFactors factors = default;
+        bool haveFactors = false;
+        foreach (var emp in employees)
+        {
+            if (emp == null) continue;
+            if (!haveFactors)
+            {
+                factors = GetEmployeeDayFactors();
+                haveFactors = true;
+            }
+            count++;
+            output += EmployeeRevenue(emp, factors.OutputMultiplier, factors.qualityControl, factors.iqSynergyBonus, factors.phdBonus);
+            salaries += DailySalary(emp, factors.taxOptimization, 1f);
+            if (emp.criminalRecord)
+                incidents += CRIMINAL_INCIDENT_CHANCE * (CRIMINAL_INCIDENT_MIN + CRIMINAL_INCIDENT_MAX) * 0.5;
+        }
+
+        double operating;
+        if (count == 0)
+        {
+            operating = officeItems + buildings + recurring;
+        }
+        else
+        {
+            if (factors.teamSynergyRate > 0f && output > 0.0)
+            {
+                int synergyTiers = Mathf.FloorToInt(count / Mathf.Max(1f, factors.teamSynergyGroup));
+                output *= 1f + synergyTiers * factors.teamSynergyRate;
+            }
+            double market = Mathf.Sqrt(count) * 50.0;                  // the random swing averages out
+            double robots = (skills != null ? skills.GetAutomationBots() : 0) * 200.0;
+            double overhead = BASE_OVERHEAD + count * OVERHEAD_PER_EMPLOYEE;
+            operating = output - salaries - incidents + market + robots + officeItems + buildings - overhead + recurring;
+        }
+
+        double growth = 0.0;
+        if (skills != null)
+        {
+            float profitGrowth = Mathf.Clamp(skills.GetDailyValueGrowth() + skills.GetEffect(SkillEffect.BankInterest), 0f, MAX_PROFIT_GROWTH);
+            if (operating > 0.0 && profitGrowth > 0f) growth += operating * profitGrowth;
+            growth += count * (double)MergerBonusPerEmployee(skills);
+        }
+        double total = operating + growth;
+        return double.IsNaN(total) || double.IsInfinity(total) ? 0.0 : total;
     }
 
     void CompleteDay(DayBreakdown day)
@@ -796,6 +935,21 @@ public class CompanyManager : MonoBehaviour
         bonus += Mathf.Max(0f, GetTotalOfficeProductivity());
         GetBuildingBonuses(out _, out float buildingProductivity, out _);
         bonus += Mathf.Max(0f, buildingProductivity);
+
+        // Cash Grab: the Backend department's upgrades (inside the same cap)
+        System.Func<float> extra = ExtraProductivity;
+        if (extra != null)
+        {
+            try
+            {
+                float value = extra();
+                if (!float.IsNaN(value)) bonus += Mathf.Max(0f, value);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogException(e, this);
+            }
+        }
 
         return Mathf.Clamp(bonus, 0f, MAX_PRODUCTIVITY_BONUS);
     }

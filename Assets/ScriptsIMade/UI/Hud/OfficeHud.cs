@@ -342,16 +342,19 @@ public class OfficeHud : MonoBehaviour
 
         bool loaded = SaveSystem.Instance == null || SaveSystem.Instance.IsGameLoaded;
         int count = cm.totalEmployees;
+        // Cash Grab: the booked value (without the day income the cash floor delivers bill by bill), so a bill arriving in
+        // the same frame isn't counted as the hire's value
+        double value = cm.BookedValue;
         if (loaded && lastEmployeeCount >= 0 && count == lastEmployeeCount + 1)
         {
             // A hire that completes a task also pays the task reward in the same frame: that's the task's toast
-            double delta = cm.companyValue - lastCompanyValue - taskMoneySinceLastCheck;
+            double delta = value - lastCompanyValue - taskMoneySinceLastCheck;
             ApplicantData hired = cm.employees != null && cm.employees.Count > 0 ? cm.employees[cm.employees.Count - 1] : null;
             OnHired(hired, delta);
         }
         taskMoneySinceLastCheck = 0;
         lastEmployeeCount = loaded ? count : -1;
-        lastCompanyValue = cm.companyValue;
+        lastCompanyValue = value;
     }
 
     void OnTaskCompleted(HiringTask task, bool success, int moneyChange)

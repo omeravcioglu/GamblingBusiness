@@ -476,8 +476,10 @@ public class SaveSystem : MonoBehaviour
         }
 
         // A bet on a flip/hand that hasn't resolved is saved as spent: gambles settle the moment their outcome
-        // shows, so adding it back would let a quit on a losing hand undo the loss
-        data.companyValue = Math.Max(0.0, company.companyValue);
+        // shows, so adding it back would let a quit on a losing hand undo the loss.
+        // Cash Grab: the value as booked, without the income the cash floor delivered in advance today (the cash floor's own
+        // save keeps that advance and puts it back on load), so the cloud save's server sees day income at day end as before
+        data.companyValue = Math.Max(0.0, company.BookedValue);
         data.currentDay = Mathf.Max(1, company.currentDay);
         data.employeeHappiness = company.employeeHappiness;
         data.investorTrust = company.investorTrust;

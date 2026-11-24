@@ -114,7 +114,7 @@ public abstract class CasinoScreen : MonoBehaviour
         CasinoManager casino = Manager;
         if (companyValueText != null && !HoldValue)
         {
-            double value = Math.Floor(CasinoManager.CompanyValueNow());
+            double value = Math.Floor(CasinoManager.BalanceNow());   // Cash Grab: the chip shows Player Cash (the bankroll)
             if (value != shownValue)
             {
                 shownValue = value;
@@ -148,6 +148,8 @@ public abstract class CasinoScreen : MonoBehaviour
     /// </summary>
     protected static string KeepHint(CasinoManager casino, bool canBet = true)
     {
+        // Cash Grab: bets come out of Player Cash (no company reserve)
+        if (PlayerWallet.Active) return CashText.Get(canBet ? "cash.casino.hint" : "cash.casino.hint.nothing");
         string amount = UIFormat.Money(casino != null ? casino.KeepInCompany : 0.0);
         return L10n.Get(T, canBet ? "casino.keep_hint" : "casino.keep_hint.nothing", ("amount", amount));
     }

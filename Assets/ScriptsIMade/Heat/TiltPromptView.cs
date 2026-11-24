@@ -285,12 +285,16 @@ public class TiltPromptView : MonoBehaviour
         return meter != null && meter.Heat >= minHeat && !meter.IsLockedOut && CompanyManager.Instance != null;
     }
 
-    /// <summary>The flip for a loss: the loss, at most what the company can put up and still keep the reserve (whole dollars).</summary>
+    /// <summary>
+    /// The flip for a loss: the loss, at most what can be put up (whole dollars). Cash Grab: the flip is paid from Player
+    /// Cash (PlayerWallet), with no company reserve; without a cash floor, company value minus the reserve.
+    /// </summary>
     double AffordableBet(double loss)
     {
         CompanyManager company = CompanyManager.Instance;
         if (company == null || double.IsNaN(loss) || loss <= 0.0) return 0.0;
-        return Math.Floor(Math.Max(0.0, Math.Min(loss, company.companyValue - Math.Max(0.0, reserve))));
+        double keep = PlayerWallet.Active ? 0.0 : Math.Max(0.0, reserve);
+        return Math.Floor(Math.Max(0.0, Math.Min(loss, PlayerWallet.Balance - keep)));
     }
 
     // ------------------------------------------------------------------
@@ -421,11 +425,16 @@ public class TiltPromptView : MonoBehaviour
         }
 
         // The money goes when the coin is tossed; the flip settles when its face shows (SettleFlip)
+        double valueBefore = Math.Max(0.0, company.companyValue);
+        if (!PlayerWallet.TrySpend(amount, "win it back"))   // Cash Grab: out of Player Cash
+        {
+            Close();
+            return;
+        }
         flipStake = amount;
-        flipValueBefore = Math.Max(0.0, company.companyValue);
+        flipValueBefore = valueBefore;
         flipHeads = UnityEngine.Random.value < headsChance;
         flipSettled = false;
-        company.AddMoney(-amount, true);
         flipsInARow++;
         GameSfx.Play(Sfx.CoinFlick);
 
@@ -498,7 +507,7 @@ public class TiltPromptView : MonoBehaviour
         flipSettled = true;
         double payout = flipHeads ? flipStake * Math.Max(0.0, headsPayout) : 0.0;
         CompanyManager company = CompanyManager.Instance;
-        if (payout > 0.0 && company != null) company.AddMoney(payout, true);
+        if (payout > 0.0 && company != null) PlayerWallet.Receive(payout, "win it back");   // Cash Grab: back to Player Cash
         GambleLedger.Report(GambleLedger.SourceTilt, flipStake, payout, flipValueBefore);
     }
 
